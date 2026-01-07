@@ -1,53 +1,61 @@
-## Mock LLM Server Design
+# Mock LLM Server Design
 
 This document describes the current implementation of a simple mock LLM server for end-to-end tests. It provides basic request/response mocking for OpenAI and Anthropic APIs using their official SDK types.
 
-### Goals
+## Goals
+
 - Support OpenAI Chat Completions API and Anthropic Messages API request/response schemas.
 - Simple configuration using Go structs with official SDK types.
 - Deterministic responses for testing without network calls.
 - Minimal setup for basic testing scenarios.
 
-### Current Implementation Status
-- ✅ Basic OpenAI Chat Completions API support (non-streaming)
+## Current Implementation Status
+
+- ✅ OpenAI Chat Completions API support (streaming and non-streaming)
 - ✅ Basic Anthropic Messages API support (non-streaming)
 - ✅ Simple exact and contains matching
 - ✅ In-memory configuration using Go structs
 - ✅ Tool/function calls
 - ✅ JSON configuration files
-- ❌ Streaming responses (not implemented)
 - ❌ Complex scenario engine (not implemented)
 
-### High-Level Architecture
+## High-Level Architecture
+
 The current implementation uses a simplified architecture:
+
 - **Server**: HTTP server with Gorilla mux router that handles provider-specific endpoints
 - **Provider Handlers**: Separate handlers for OpenAI and Anthropic that process requests and return mocked responses
 - **Simple Matching**: Basic matching logic that compares incoming requests against predefined mocks
 - **Direct SDK Integration**: Uses official OpenAI and Anthropic SDK types directly
 
-### Key Types
+## Key Types
+
 Current implementation uses these core types:
 
-#### Configuration
+### Configuration
+
 - `Config`: Root configuration containing arrays of OpenAI and Anthropic mocks
 - `OpenAIMock`: Maps OpenAI requests to responses using official SDK types
 - `AnthropicMock`: Maps Anthropic requests to responses using official SDK types
 
-#### Matching
+### Matching
+
 - `MatchType`: Enum for matching strategies (`exact`, `contains`)
 - `OpenAIRequestMatch`: Defines how to match OpenAI requests (match type + message)
 - `AnthropicRequestMatch`: Defines how to match Anthropic requests (match type + message)
 
-### Provider Coverage
+## Provider Coverage
 
-#### OpenAI Chat Completions
+### OpenAI Chat Completions
+
 - **Endpoint**: `POST /v1/chat/completions`
 - **Auth**: `Authorization: Bearer <token>` (presence check only)
 - **Request Type**: `openai.ChatCompletionNewParams`
-- **Response Type**: `openai.ChatCompletion`
+- **Response Type**: `openai.ChatCompletion` or `openai.ChatCompletionChunk`
 - **Matching**: Exact or contains matching on the last message in the conversation
 
-#### Anthropic Messages API
+### Anthropic Messages API
+
 - **Endpoint**: `POST /v1/messages`
 - **Auth**: `x-api-key` (presence check only)
 - **Headers**: `anthropic-version` required
@@ -139,7 +147,9 @@ config := mockllm.Config{
 ```
 
 ### Matching Algorithm
+
 Simple linear search through mocks:
+
 1. Parse incoming request into appropriate SDK type
 2. Iterate through provider-specific mocks in order
 3. For each mock, check if the match criteria are met:
@@ -149,20 +159,24 @@ Simple linear search through mocks:
 5. Return 404 if no match found
 
 ### Response Generation
+
 - All responses are non-streaming JSON
 - Uses official SDK response types directly
 - No transformation or adaptation layer
 - Standard HTTP headers (`Content-Type: application/json`)
 
 ### Files and Layout
+
 Current implementation consists of:
+
 - `server.go` — HTTP server setup, routing, and lifecycle management
 - `types.go` — Core configuration types using official SDK types
 - `openai.go` — OpenAI provider handler and matching logic
 - `anthropic.go` — Anthropic provider handler and matching logic
 - `server_test.go` — Basic integration tests
 
-### Running in Tests
+## Running in Tests
+
 ```go
 config := mockllm.Config{/* mocks */}
 server := mockllm.NewServer(config)
@@ -172,22 +186,24 @@ defer server.Stop()
 // Use baseURL for API calls in tests
 ```
 
-### SDK Dependencies
-- **OpenAI Go SDK**: `github.com/openai/openai-go`
+## SDK Dependencies
+
+- **OpenAI Go SDK**: `github.com/openai/openai-go/v3`
 - **Anthropic Go SDK**: `github.com/anthropics/anthropic-sdk-go`
 - **HTTP Router**: `github.com/gorilla/mux`
 
-### Limitations of Current Implementation
+## Limitations of Current Implementation
+
 1. **No Streaming**: Only supports non-streaming responses
 2. **Simple Matching**: Only last message matching, no complex predicates
-5. **No Multi-turn**: No stateful conversation tracking
-6. **Limited Error Handling**: Basic error responses only
-7. **No Latency Simulation**: No timing controls
+3. **No Multi-turn**: No stateful conversation tracking
+4. **Limited Error Handling**: Basic error responses only
+5. **No Latency Simulation**: No timing controls
 
-### Potential Future Enhancements (Not Implemented)
+## Potential Future Enhancements (Not Implemented)
+
 The original design document outlined more sophisticated features that could be added:
+
 - Streaming response support
 - Complex matching predicates
 - Error injection and latency simulation
-
-
