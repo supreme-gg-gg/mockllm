@@ -9,7 +9,8 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/kagent-dev/mockllm"
-	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -55,6 +56,7 @@ func TestSimpleOpenAIMock(t *testing.T) {
 	var mock mockllm.OpenAIMock
 	mock.Name = "test-response"
 	mock.Response = openaiResponse
+
 	mock.Match = mockllm.OpenAIRequestMatch{
 		MatchType: mockllm.MatchTypeExact,
 		Message:   openaiRequest.Messages[len(openaiRequest.Messages)-1],
@@ -74,28 +76,21 @@ func TestSimpleOpenAIMock(t *testing.T) {
 	server := mockllm.NewServer(config)
 	baseURL, err := server.Start(t.Context())
 	require.NoError(t, err)
-	defer server.Stop(context.Background()) //nolint:errcheck
+	defer server.Stop(context.Background())
 
-	// Make request
-	req, err := http.NewRequest("POST", baseURL+"/v1/chat/completions", bytes.NewReader(reqBytes))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer test-key")
+	// Use Client
+	client := openai.NewClient(
+		option.WithBaseURL(baseURL+"/v1/"),
+		option.WithAPIKey("test-key"),
+	)
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close() //nolint:errcheck
-
-	// Check response
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var responseBody map[string]interface{}
-	err = json.NewDecoder(resp.Body).Decode(&responseBody)
+	resp, err := client.Chat.Completions.New(t.Context(), openaiRequest)
 	require.NoError(t, err)
 
-	assert.Equal(t, "chatcmpl-123", responseBody["id"])
-	assert.Equal(t, "chat.completion", responseBody["object"])
+	assert.Equal(t, "chatcmpl-123", resp.ID)
+	// Cast to string to avoid undefined constant issues
+	assert.Equal(t, "chat.completion", string(resp.Object))
+	assert.Equal(t, "Hello! How can I help you today?", resp.Choices[0].Message.Content)
 }
 
 func TestSimpleAnthropicMock(t *testing.T) {
@@ -197,4 +192,104 @@ func TestHealthCheck(t *testing.T) {
 
 	assert.Equal(t, "healthy", responseBody["status"])
 	assert.Equal(t, "mock-llm", responseBody["service"])
+}
+
+func TestStreamingToolCallsOpenAIMock(t *testing.T) {
+	// Request
+	openaiRequest := openai.ChatCompletionNewParams{
+		Model: "gpt-4.1-mini",
+		Messages: []openai.ChatCompletionMessageParamUnion{
+			{
+				OfUser: &openai.ChatCompletionUserMessageParam{
+					Role: "user",
+					Content: openai.ChatCompletionUserMessageParamContentUnion{
+						OfString: openai.String("What is 2+2?"),
+					},
+				},
+			},
+		},
+	}
+
+	// Response with Tool Calls
+	openaiResponse := openai.ChatCompletion{
+		ID:      "chatcmpl-calc",
+		Object:  "chat.completion",
+		Created: 1677652288,
+		Model:   "gpt-4.1-mini",
+		Choices: []openai.ChatCompletionChoice{
+			{
+				Index: 0,
+				Message: openai.ChatCompletionMessage{
+					Role: "assistant",
+					ToolCalls: []openai.ChatCompletionMessageToolCallUnion{
+						{
+							ID:   "call_abc123",
+							Type: "function",
+							Function: openai.ChatCompletionMessageFunctionToolCallFunction{
+								Name:      "calculate",
+								Arguments: `{"expression": "2+2"}`,
+							},
+						},
+					},
+				},
+				FinishReason: "tool_calls",
+			},
+		},
+	}
+
+	// Create mock
+	var mock mockllm.OpenAIMock
+	mock.Name = "calculate_request"
+
+	// Direct assignment as types.go uses structural typing
+	mock.Response = openaiResponse
+
+	mock.Match = mockllm.OpenAIRequestMatch{
+		MatchType: mockllm.MatchTypeContains,
+		Message:   openaiRequest.Messages[len(openaiRequest.Messages)-1],
+	}
+
+	// Marshaling setup for Match struct to be populated correctly in the config
+	reqBytes, err := json.Marshal(openaiRequest)
+	require.NoError(t, err)
+	err = json.Unmarshal(reqBytes, &mock.Match)
+	require.NoError(t, err)
+
+	config := mockllm.Config{
+		OpenAI: []mockllm.OpenAIMock{mock}, // Match Unmarshall logic issues if any?
+		// Note: OpenAI field in Config is []OpenAIMock.
+	}
+
+	server := mockllm.NewServer(config)
+	baseURL, err := server.Start(t.Context())
+	require.NoError(t, err)
+	defer server.Stop(context.Background())
+
+	// Use Client
+	client := openai.NewClient(
+		option.WithBaseURL(baseURL+"/v1/"),
+		option.WithAPIKey("test-key"),
+	)
+
+	stream := client.Chat.Completions.NewStreaming(t.Context(), openaiRequest)
+
+	var receivedToolCalls []openai.ChatCompletionChunkChoiceDeltaToolCall
+
+	for stream.Next() {
+		evt := stream.Current()
+		if len(evt.Choices) > 0 {
+			if len(evt.Choices[0].Delta.ToolCalls) > 0 {
+				receivedToolCalls = append(receivedToolCalls, evt.Choices[0].Delta.ToolCalls...)
+			}
+		}
+	}
+
+	if err := stream.Err(); err != nil {
+		t.Fatalf("Stream error: %v", err)
+	}
+
+	// Expect to receive the tool call
+	require.Len(t, receivedToolCalls, 1)
+	assert.Equal(t, "calculate", receivedToolCalls[0].Function.Name)
+	assert.Equal(t, `{"expression": "2+2"}`, receivedToolCalls[0].Function.Arguments)
 }
