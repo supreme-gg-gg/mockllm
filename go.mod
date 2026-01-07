@@ -5,7 +5,7 @@ go 1.25.1
 require (
 	github.com/anthropics/anthropic-sdk-go v1.13.0
 	github.com/gorilla/mux v1.8.1
-	github.com/openai/openai-go v1.12.0
+	github.com/openai/openai-go/v3 v3.15.0
 	github.com/stretchr/testify v1.11.1
 )
 

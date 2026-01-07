@@ -2,7 +2,7 @@ package mockllm
 
 import (
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/v3"
 )
 
 // Very simple mock configuration - just maps requests to responses using official SDK types
