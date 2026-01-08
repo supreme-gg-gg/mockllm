@@ -18,11 +18,28 @@ A simple mock LLM server for end-to-end testing. Provides request/response mocki
 - **Matching**: Linear search through mocks with exact/contains matching
 - **SDK Integration**: Uses official OpenAI and Anthropic SDK types directly
 
+## Key Types
+
+Current implementation uses these core types:
+
+### Configuration
+
+- `Config`: Root configuration containing arrays of OpenAI and Anthropic mocks
+- `OpenAIMock` and `OpenAIResponseMock` Maps OpenAI requests to responses using official SDK types
+- `AnthropicMock`: Maps Anthropic requests to responses using official SDK types
+
+### Matching
+
+- `MatchType`: Enum for matching strategies (`exact`, `contains`)
+- `OpenAIRequestMatch` and `OpenAIResponseRequestMatch`: Defines how to match OpenAI requests (match type + message)
+- `AnthropicRequestMatch`: Defines how to match Anthropic requests (match type + message)
+
 ## API Coverage
 
 ### OpenAI Chat Completions
 
 - **Endpoint**: `POST /v1/chat/completions`
+- **Auth**: `Authorization: Bearer <token>` (presence check only)
 - **Request**: `openai.ChatCompletionNewParams`
 - **Response**: `openai.ChatCompletion` (streaming: `openai.ChatCompletionChunk`)
 - **Matching**: Exact or contains on last message
@@ -30,6 +47,7 @@ A simple mock LLM server for end-to-end testing. Provides request/response mocki
 ### OpenAI Responses API
 
 - **Endpoint**: `POST /v1/responses`
+- **Auth**: `Authorization: Bearer <token>` (presence check only)
 - **Request**: `responses.ResponseNewParams`
 - **Response**: `responses.Response`
 - **Matching**: Exact or contains on input field
@@ -38,6 +56,8 @@ A simple mock LLM server for end-to-end testing. Provides request/response mocki
 ### Anthropic Messages API
 
 - **Endpoint**: `POST /v1/messages`
+- **Auth**: `x-api-key` (presence check only)
+- **Headers**: `anthropic-version` required
 - **Request**: `anthropic.MessageNewParams`
 - **Response**: `anthropic.Message`
 - **Matching**: Exact or contains on last message
