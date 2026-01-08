@@ -78,20 +78,51 @@ config := mockllm.Config{
 {
   "openai": [
     {
-      "name": "simple-response",
+      "name": "initial_request",
       "match": {
         "match_type": "exact",
-        "message": {
-          "role": "user",
-          "content": "Hello"
+        "message" : {
+          "content": "List all nodes in the cluster",
+          "role": "user"
         }
       },
       "response": {
-        "id": "chatcmpl-123",
+        "id": "chatcmpl-1",
         "object": "chat.completion",
-        "model": "gpt-4o-mini",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
         "choices": [
-          /* ... */
+          {
+            "index": 0,
+            "role": "assistant",
+            "message": {
+              "content": "",
+              "tool_calls": [
+                ...
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "k8s_get_resources_response",
+      "match": {
+        "match_type": "contains",
+        "message" : {
+          "content": "kagent-control-plane",
+          "role": "tool",
+          "tool_call_id": "call_1"
+        }
+      },
+      "response": {
+        "id": "call_1",
+        "object": "chat.completion.tool_message",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          ...
         ]
       }
     }
@@ -105,12 +136,17 @@ config := mockllm.Config{
 }
 ```
 
-## Matching
+### Matching Algorithm
 
-- **Exact**: JSON comparison of the last message/input
-- **Contains**: String contains check on message content/input
-- First matching mock wins
-- Returns 404 if no match found
+Simple linear search through mocks:
+
+1. Parse incoming request into appropriate SDK type
+2. Iterate through provider-specific mocks in order
+3. For each mock, check if the match criteria are met:
+   - **Exact**: JSON comparison of the last message
+   - **Contains**: String contains check on message content (OpenAI only)
+4. Return the response from the first matching mock
+5. Return 404 if no match found
 
 ## Response Types
 

@@ -1,4 +1,4 @@
-package mockllm
+package mockllm_test
 
 import (
 	"bytes"
@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/kagent-dev/mockllm"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
@@ -29,12 +30,12 @@ func loadTestData(t *testing.T, filename string, target interface{}) {
 }
 
 // newOpenAIMock creates an OpenAIMock with the given parameters, handling marshal/unmarshal
-func newOpenAIMock(t *testing.T, name string, matchType MatchType, request openai.ChatCompletionNewParams, response openai.ChatCompletion) OpenAIMock {
+func newOpenAIMock(t *testing.T, name string, matchType mockllm.MatchType, request openai.ChatCompletionNewParams, response openai.ChatCompletion) mockllm.OpenAIMock {
 	t.Helper()
-	mock := OpenAIMock{
+	mock := mockllm.OpenAIMock{
 		Name:     name,
 		Response: response,
-		Match: OpenAIRequestMatch{
+		Match: mockllm.OpenAIRequestMatch{
 			MatchType: matchType,
 			Message:   request.Messages[len(request.Messages)-1],
 		},
@@ -50,12 +51,12 @@ func newOpenAIMock(t *testing.T, name string, matchType MatchType, request opena
 }
 
 // newOpenAIResponseMock creates an OpenAIResponseMock with the given parameters
-func newOpenAIResponseMock(t *testing.T, name string, matchType MatchType, request responses.ResponseNewParams, response responses.Response) OpenAIResponseMock {
+func newOpenAIResponseMock(t *testing.T, name string, matchType mockllm.MatchType, request responses.ResponseNewParams, response responses.Response) mockllm.OpenAIResponseMock {
 	t.Helper()
-	mock := OpenAIResponseMock{
+	mock := mockllm.OpenAIResponseMock{
 		Name:     name,
 		Response: response,
-		Match: OpenAIResponseRequestMatch{
+		Match: mockllm.OpenAIResponseRequestMatch{
 			MatchType: matchType,
 			Input:     request.Input,
 		},
@@ -71,12 +72,12 @@ func newOpenAIResponseMock(t *testing.T, name string, matchType MatchType, reque
 }
 
 // newAnthropicMock creates an AnthropicMock with the given parameters
-func newAnthropicMock(t *testing.T, name string, matchType MatchType, request anthropic.MessageNewParams, response anthropic.Message) AnthropicMock {
+func newAnthropicMock(t *testing.T, name string, matchType mockllm.MatchType, request anthropic.MessageNewParams, response anthropic.Message) mockllm.AnthropicMock {
 	t.Helper()
-	mock := AnthropicMock{
+	mock := mockllm.AnthropicMock{
 		Name:     name,
 		Response: response,
-		Match: AnthropicRequestMatch{
+		Match: mockllm.AnthropicRequestMatch{
 			MatchType: matchType,
 			Message:   request.Messages[len(request.Messages)-1],
 		},
@@ -92,9 +93,9 @@ func newAnthropicMock(t *testing.T, name string, matchType MatchType, request an
 }
 
 // startTestServer starts a test server and returns the base URL and cleanup function
-func startTestServer(t *testing.T, config Config) (string, func()) {
+func startTestServer(t *testing.T, config mockllm.Config) (string, func()) {
 	t.Helper()
-	server := NewServer(config)
+	server := mockllm.NewServer(config)
 	baseURL, err := server.Start(t.Context())
 	require.NoError(t, err)
 	return baseURL, func() {
@@ -123,9 +124,9 @@ func TestSimpleAnthropicMock(t *testing.T) {
 	var anthropicResponse anthropic.Message
 	loadTestData(t, "anthropic_mock.json", &anthropicResponse)
 
-	mock := newAnthropicMock(t, "test-response", MatchTypeContains, anthropicRequest, anthropicResponse)
-	config := Config{
-		Anthropic: []AnthropicMock{mock},
+	mock := newAnthropicMock(t, "test-response", mockllm.MatchTypeContains, anthropicRequest, anthropicResponse)
+	config := mockllm.Config{
+		Anthropic: []mockllm.AnthropicMock{mock},
 	}
 
 	baseURL, cleanup := startTestServer(t, config)
@@ -157,10 +158,10 @@ func TestSimpleAnthropicMock(t *testing.T) {
 }
 
 func TestHealthCheck(t *testing.T) {
-	config := Config{
-		OpenAI:         []OpenAIMock{},
-		OpenAIResponse: []OpenAIResponseMock{},
-		Anthropic:      []AnthropicMock{},
+	config := mockllm.Config{
+		OpenAI:         []mockllm.OpenAIMock{},
+		OpenAIResponse: []mockllm.OpenAIResponseMock{},
+		Anthropic:      []mockllm.AnthropicMock{},
 	}
 	baseURL, cleanup := startTestServer(t, config)
 	defer cleanup()
@@ -200,7 +201,7 @@ func TestOpenAICompletionMock(t *testing.T) {
 
 	var simpleResponse openai.ChatCompletion
 	loadTestData(t, "openai_mock.json", &simpleResponse)
-	simpleMock := newOpenAIMock(t, "test-response", MatchTypeExact, simpleRequest, simpleResponse)
+	simpleMock := newOpenAIMock(t, "test-response", mockllm.MatchTypeExact, simpleRequest, simpleResponse)
 
 	// Setup tool call response for streaming
 	toolCallRequest := openai.ChatCompletionNewParams{
@@ -219,10 +220,10 @@ func TestOpenAICompletionMock(t *testing.T) {
 
 	var toolCallResponse openai.ChatCompletion
 	loadTestData(t, "openai_function_mock.json", &toolCallResponse)
-	toolCallMock := newOpenAIMock(t, "calculate_request", MatchTypeContains, toolCallRequest, toolCallResponse)
+	toolCallMock := newOpenAIMock(t, "calculate_request", mockllm.MatchTypeContains, toolCallRequest, toolCallResponse)
 
-	config := Config{
-		OpenAI: []OpenAIMock{simpleMock, toolCallMock},
+	config := mockllm.Config{
+		OpenAI: []mockllm.OpenAIMock{simpleMock, toolCallMock},
 	}
 
 	baseURL, cleanup := startTestServer(t, config)
@@ -279,7 +280,7 @@ func TestOpenAIResponseMock(t *testing.T) {
 
 	var haikuResponse responses.Response
 	loadTestData(t, "openai_response_mock.json", &haikuResponse)
-	haikuMock := newOpenAIResponseMock(t, "haiku-response", MatchTypeContains, haikuRequest, haikuResponse)
+	haikuMock := newOpenAIResponseMock(t, "haiku-response", mockllm.MatchTypeContains, haikuRequest, haikuResponse)
 
 	// Setup function output response for streaming
 	funcRequest := responses.ResponseNewParams{
@@ -291,11 +292,11 @@ func TestOpenAIResponseMock(t *testing.T) {
 
 	var funcResponse responses.Response
 	loadTestData(t, "openai_response_function_mock.json", &funcResponse)
-	funcMock := newOpenAIResponseMock(t, "function-response", MatchTypeContains, funcRequest, funcResponse)
+	funcMock := newOpenAIResponseMock(t, "function-response", mockllm.MatchTypeContains, funcRequest, funcResponse)
 
 	// Setup both mocks on the same server and use request matching to determine which response to return
-	config := Config{
-		OpenAIResponse: []OpenAIResponseMock{haikuMock, funcMock},
+	config := mockllm.Config{
+		OpenAIResponse: []mockllm.OpenAIResponseMock{haikuMock, funcMock},
 	}
 
 	baseURL, cleanup := startTestServer(t, config)
@@ -364,7 +365,7 @@ func TestOpenAICompletionAndResponseMocks(t *testing.T) {
 
 	var openaiResponse openai.ChatCompletion
 	loadTestData(t, "openai_mock.json", &openaiResponse)
-	chatMock := newOpenAIMock(t, "chat-test", MatchTypeExact, openaiRequest, openaiResponse)
+	chatMock := newOpenAIMock(t, "chat-test", mockllm.MatchTypeExact, openaiRequest, openaiResponse)
 
 	// Responses API mock
 	responseRequest := responses.ResponseNewParams{
@@ -376,11 +377,11 @@ func TestOpenAICompletionAndResponseMocks(t *testing.T) {
 
 	var response responses.Response
 	loadTestData(t, "openai_response_mock.json", &response)
-	responseMock := newOpenAIResponseMock(t, "response-test", MatchTypeContains, responseRequest, response)
+	responseMock := newOpenAIResponseMock(t, "response-test", mockllm.MatchTypeContains, responseRequest, response)
 
-	config := Config{
-		OpenAI:         []OpenAIMock{chatMock},
-		OpenAIResponse: []OpenAIResponseMock{responseMock},
+	config := mockllm.Config{
+		OpenAI:         []mockllm.OpenAIMock{chatMock},
+		OpenAIResponse: []mockllm.OpenAIResponseMock{responseMock},
 	}
 
 	baseURL, cleanup := startTestServer(t, config)
