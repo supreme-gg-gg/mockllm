@@ -3,14 +3,16 @@ package mockllm
 import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/responses"
 )
 
 // Very simple mock configuration - just maps requests to responses using official SDK types
 
 // Config holds all the mock responses
 type Config struct {
-	OpenAI    []OpenAIMock    `json:"openai,omitempty"`
-	Anthropic []AnthropicMock `json:"anthropic,omitempty"`
+	OpenAI         []OpenAIMock         `json:"openai,omitempty"`
+	OpenAIResponse []OpenAIResponseMock `json:"openai_response,omitempty"`
+	Anthropic      []AnthropicMock      `json:"anthropic,omitempty"`
 	// ListenAddr is the address to listen on. Defaults to 0.0.0.0:0 (any IP address and ephemeral port)
 	ListenAddr string `json:"listen_addr,omitempty"`
 }
@@ -32,6 +34,18 @@ type OpenAIMock struct {
 	Name     string                `json:"name"`     // identifier for this mock
 	Match    OpenAIRequestMatch    `json:"match"`    // Match type and value
 	Response openai.ChatCompletion `json:"response"` // OpenAI response to return (ChatCompletion or ChatCompletionChunk)
+}
+
+type OpenAIResponseRequestMatch struct {
+	MatchType MatchType                             `json:"match_type"`
+	Input     responses.ResponseNewParamsInputUnion `json:"input"` // Input to match against (typically OfString)
+}
+
+// OpenAIResponseMock maps an OpenAI Responses API request to a response using official SDK types
+type OpenAIResponseMock struct {
+	Name     string                     `json:"name"`     // identifier for this mock
+	Match    OpenAIResponseRequestMatch `json:"match"`    // Match type and value
+	Response responses.Response         `json:"response"` // OpenAI Responses API response to return
 }
 
 type AnthropicRequestMatch struct {

@@ -34,6 +34,15 @@ func NewServer(config Config) *Server {
 		})
 	}
 
+	var openaiResponseMocks []OpenAIResponseMock
+	for _, mock := range config.OpenAIResponse {
+		openaiResponseMocks = append(openaiResponseMocks, OpenAIResponseMock{
+			Name:     mock.Name,
+			Match:    mock.Match,
+			Response: mock.Response,
+		})
+	}
+
 	var anthropicMocks []AnthropicMock
 	for _, mock := range config.Anthropic {
 		anthropicMocks = append(anthropicMocks, AnthropicMock{
@@ -45,7 +54,7 @@ func NewServer(config Config) *Server {
 
 	return &Server{
 		config:            config,
-		openaiProvider:    NewOpenAIProvider(openaiMocks),
+		openaiProvider:    NewOpenAIProvider(openaiMocks, openaiResponseMocks),
 		anthropicProvider: NewAnthropicProvider(anthropicMocks),
 	}
 }
@@ -124,6 +133,9 @@ func (s *Server) setupRoutes() {
 	// OpenAI Chat Completions API
 	r.HandleFunc("/v1/chat/completions", s.openaiProvider.Handle).Methods("POST")
 
+	// OpenAI Responses API
+	r.HandleFunc("/v1/responses", s.openaiProvider.HandleResponses).Methods("POST")
+
 	// Anthropic Messages API
 	r.HandleFunc("/v1/messages", s.anthropicProvider.Handle).Methods("POST")
 
@@ -138,10 +150,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	if err := json.NewEncoder(w).Encode(map[string]any{
-		"status":    "healthy",
-		"service":   "mock-llm",
-		"openai":    len(s.config.OpenAI),
-		"anthropic": len(s.config.Anthropic),
+		"status":          "healthy",
+		"service":         "mock-llm",
+		"openai":          len(s.config.OpenAI),
+		"openai_response": len(s.config.OpenAIResponse),
+		"anthropic":       len(s.config.Anthropic),
 	}); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
 	}
@@ -155,7 +168,7 @@ func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
 		"error":  "Endpoint not found",
 		"path":   r.URL.Path,
 		"method": r.Method,
-		"hint":   "Supported: /v1/chat/completions (OpenAI), /v1/messages (Anthropic)",
+		"hint":   "Supported: /v1/chat/completions (OpenAI), /v1/responses (OpenAI Responses API), /v1/messages (Anthropic)",
 	}); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
 	}

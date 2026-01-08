@@ -1,100 +1,108 @@
-package mockllm_test
+package mockllm
 
 import (
 	"bytes"
 	"context"
+	"embed"
 	"encoding/json"
 	"net/http"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/kagent-dev/mockllm"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/responses"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// For now, we'll use a simple approach where we create mocks with JSON-compatible structures
-// that can be marshaled to/from the SDK types. This allows us to test the basic functionality
-// while using the SDK types in the type definitions.
+//go:embed testdata/*.json
+var testdataFS embed.FS
 
-func TestSimpleOpenAIMock(t *testing.T) {
-	// Create a simple config - we'll use JSON marshaling to convert to SDK types
-	openaiRequest := openai.ChatCompletionNewParams{
-		Model: "gpt-4o-mini",
-		Messages: []openai.ChatCompletionMessageParamUnion{
-			{
-				OfUser: &openai.ChatCompletionUserMessageParam{
-					Role: "user",
-					Content: openai.ChatCompletionUserMessageParamContentUnion{
-						OfString: openai.String("Hello"),
-					},
-				},
-			},
+// loadTestData loads a JSON file from testdata and unmarshals it into the target
+func loadTestData(t *testing.T, filename string, target interface{}) {
+	t.Helper()
+	data, err := testdataFS.ReadFile("testdata/" + filename)
+	require.NoError(t, err)
+	err = json.Unmarshal(data, target)
+	require.NoError(t, err)
+}
+
+// newOpenAIMock creates an OpenAIMock with the given parameters, handling marshal/unmarshal
+func newOpenAIMock(t *testing.T, name string, matchType MatchType, request openai.ChatCompletionNewParams, response openai.ChatCompletion) OpenAIMock {
+	t.Helper()
+	mock := OpenAIMock{
+		Name:     name,
+		Response: response,
+		Match: OpenAIRequestMatch{
+			MatchType: matchType,
+			Message:   request.Messages[len(request.Messages)-1],
 		},
-	}
-
-	openaiResponse := openai.ChatCompletion{
-		ID:      "chatcmpl-123",
-		Object:  "chat.completion",
-		Created: 1677652288,
-		Model:   "gpt-4o-mini",
-		Choices: []openai.ChatCompletionChoice{
-			{
-				Index: 0,
-				Message: openai.ChatCompletionMessage{
-					Role:    "assistant",
-					Content: "Hello! How can I help you today?",
-				},
-				FinishReason: "stop",
-			},
-		},
-	}
-
-	// Convert to JSON and back to get SDK-compatible structure
-	var mock mockllm.OpenAIMock
-	mock.Name = "test-response"
-	mock.Response = openaiResponse
-
-	mock.Match = mockllm.OpenAIRequestMatch{
-		MatchType: mockllm.MatchTypeExact,
-		Message:   openaiRequest.Messages[len(openaiRequest.Messages)-1],
 	}
 
 	// Marshal and unmarshal the request to get it in the right format
-	reqBytes, err := json.Marshal(openaiRequest)
+	reqBytes, err := json.Marshal(request)
 	require.NoError(t, err)
 	err = json.Unmarshal(reqBytes, &mock.Match)
 	require.NoError(t, err)
 
-	config := mockllm.Config{
-		OpenAI: []mockllm.OpenAIMock{mock},
+	return mock
+}
+
+// newOpenAIResponseMock creates an OpenAIResponseMock with the given parameters
+func newOpenAIResponseMock(t *testing.T, name string, matchType MatchType, request responses.ResponseNewParams, response responses.Response) OpenAIResponseMock {
+	t.Helper()
+	mock := OpenAIResponseMock{
+		Name:     name,
+		Response: response,
+		Match: OpenAIResponseRequestMatch{
+			MatchType: matchType,
+			Input:     request.Input,
+		},
 	}
 
-	// Start server
-	server := mockllm.NewServer(config)
+	// Marshal and unmarshal to get proper structure
+	reqBytes, err := json.Marshal(request)
+	require.NoError(t, err)
+	err = json.Unmarshal(reqBytes, &mock.Match)
+	require.NoError(t, err)
+
+	return mock
+}
+
+// newAnthropicMock creates an AnthropicMock with the given parameters
+func newAnthropicMock(t *testing.T, name string, matchType MatchType, request anthropic.MessageNewParams, response anthropic.Message) AnthropicMock {
+	t.Helper()
+	mock := AnthropicMock{
+		Name:     name,
+		Response: response,
+		Match: AnthropicRequestMatch{
+			MatchType: matchType,
+			Message:   request.Messages[len(request.Messages)-1],
+		},
+	}
+
+	// Marshal and unmarshal the request to get it in the right format
+	reqBytes, err := json.Marshal(request)
+	require.NoError(t, err)
+	err = json.Unmarshal(reqBytes, &mock.Match)
+	require.NoError(t, err)
+
+	return mock
+}
+
+// startTestServer starts a test server and returns the base URL and cleanup function
+func startTestServer(t *testing.T, config Config) (string, func()) {
+	t.Helper()
+	server := NewServer(config)
 	baseURL, err := server.Start(t.Context())
 	require.NoError(t, err)
-	defer server.Stop(context.Background())
-
-	// Use Client
-	client := openai.NewClient(
-		option.WithBaseURL(baseURL+"/v1/"),
-		option.WithAPIKey("test-key"),
-	)
-
-	resp, err := client.Chat.Completions.New(t.Context(), openaiRequest)
-	require.NoError(t, err)
-
-	assert.Equal(t, "chatcmpl-123", resp.ID)
-	// Cast to string to avoid undefined constant issues
-	assert.Equal(t, "chat.completion", string(resp.Object))
-	assert.Equal(t, "Hello! How can I help you today?", resp.Choices[0].Message.Content)
+	return baseURL, func() {
+		server.Stop(context.Background())
+	}
 }
 
 func TestSimpleAnthropicMock(t *testing.T) {
-	// Create a simple config - we'll use JSON marshaling to convert to SDK types
 	anthropicRequest := anthropic.MessageNewParams{
 		Model:     "claude-3-5-sonnet-20240620",
 		MaxTokens: 1000,
@@ -112,45 +120,20 @@ func TestSimpleAnthropicMock(t *testing.T) {
 		},
 	}
 
-	anthropicResponse := anthropic.Message{
-		ID:   "msg_123",
-		Type: "message",
-		Role: "assistant",
-		Content: []anthropic.ContentBlockUnion{
-			{
-				Type: "text",
-				Text: "Hello! How can I assist you today?",
-			},
-		},
-		Model:      "claude-3-5-sonnet-20240620",
-		StopReason: "end_turn",
+	var anthropicResponse anthropic.Message
+	loadTestData(t, "anthropic_mock.json", &anthropicResponse)
+
+	mock := newAnthropicMock(t, "test-response", MatchTypeContains, anthropicRequest, anthropicResponse)
+	config := Config{
+		Anthropic: []AnthropicMock{mock},
 	}
 
-	// Convert to JSON and back to get SDK-compatible structure
-	var mock mockllm.AnthropicMock
-	mock.Name = "test-response"
-	mock.Response = anthropicResponse
-	mock.Match = mockllm.AnthropicRequestMatch{
-		MatchType: mockllm.MatchTypeContains,
-		Message:   anthropicRequest.Messages[len(anthropicRequest.Messages)-1],
-	}
-	// Marshal and unmarshal the request to get it in the right format
+	baseURL, cleanup := startTestServer(t, config)
+	defer cleanup()
+
 	reqBytes, err := json.Marshal(anthropicRequest)
 	require.NoError(t, err)
-	err = json.Unmarshal(reqBytes, &mock.Match)
-	require.NoError(t, err)
 
-	config := mockllm.Config{
-		Anthropic: []mockllm.AnthropicMock{mock},
-	}
-
-	// Start server
-	server := mockllm.NewServer(config)
-	baseURL, err := server.Start(t.Context())
-	require.NoError(t, err)
-	defer server.Stop(context.Background()) //nolint:errcheck
-
-	// Make request
 	req, err := http.NewRequest("POST", baseURL+"/v1/messages", bytes.NewReader(reqBytes))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
@@ -174,11 +157,13 @@ func TestSimpleAnthropicMock(t *testing.T) {
 }
 
 func TestHealthCheck(t *testing.T) {
-	config := mockllm.Config{}
-	server := mockllm.NewServer(config)
-	baseURL, err := server.Start(t.Context())
-	require.NoError(t, err)
-	defer server.Stop(context.Background()) //nolint:errcheck
+	config := Config{
+		OpenAI:         []OpenAIMock{},
+		OpenAIResponse: []OpenAIResponseMock{},
+		Anthropic:      []AnthropicMock{},
+	}
+	baseURL, cleanup := startTestServer(t, config)
+	defer cleanup()
 
 	resp, err := http.Get(baseURL + "/health")
 	require.NoError(t, err)
@@ -192,11 +177,33 @@ func TestHealthCheck(t *testing.T) {
 
 	assert.Equal(t, "healthy", responseBody["status"])
 	assert.Equal(t, "mock-llm", responseBody["service"])
+	assert.NotNil(t, responseBody["openai"])
+	assert.NotNil(t, responseBody["openai_response"])
+	assert.NotNil(t, responseBody["anthropic"])
 }
 
-func TestStreamingToolCallsOpenAIMock(t *testing.T) {
-	// Request
-	openaiRequest := openai.ChatCompletionNewParams{
+func TestOpenAICompletionMock(t *testing.T) {
+	// Setup simple response for non-streaming
+	simpleRequest := openai.ChatCompletionNewParams{
+		Model: "gpt-4o-mini",
+		Messages: []openai.ChatCompletionMessageParamUnion{
+			{
+				OfUser: &openai.ChatCompletionUserMessageParam{
+					Role: "user",
+					Content: openai.ChatCompletionUserMessageParamContentUnion{
+						OfString: openai.String("Hello"),
+					},
+				},
+			},
+		},
+	}
+
+	var simpleResponse openai.ChatCompletion
+	loadTestData(t, "openai_mock.json", &simpleResponse)
+	simpleMock := newOpenAIMock(t, "test-response", MatchTypeExact, simpleRequest, simpleResponse)
+
+	// Setup tool call response for streaming
+	toolCallRequest := openai.ChatCompletionNewParams{
 		Model: "gpt-4.1-mini",
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			{
@@ -210,86 +217,187 @@ func TestStreamingToolCallsOpenAIMock(t *testing.T) {
 		},
 	}
 
-	// Response with Tool Calls
-	openaiResponse := openai.ChatCompletion{
-		ID:      "chatcmpl-calc",
-		Object:  "chat.completion",
-		Created: 1677652288,
-		Model:   "gpt-4.1-mini",
-		Choices: []openai.ChatCompletionChoice{
-			{
-				Index: 0,
-				Message: openai.ChatCompletionMessage{
-					Role: "assistant",
-					ToolCalls: []openai.ChatCompletionMessageToolCallUnion{
-						{
-							ID:   "call_abc123",
-							Type: "function",
-							Function: openai.ChatCompletionMessageFunctionToolCallFunction{
-								Name:      "calculate",
-								Arguments: `{"expression": "2+2"}`,
-							},
-						},
-					},
-				},
-				FinishReason: "tool_calls",
-			},
-		},
+	var toolCallResponse openai.ChatCompletion
+	loadTestData(t, "openai_function_mock.json", &toolCallResponse)
+	toolCallMock := newOpenAIMock(t, "calculate_request", MatchTypeContains, toolCallRequest, toolCallResponse)
+
+	config := Config{
+		OpenAI: []OpenAIMock{simpleMock, toolCallMock},
 	}
 
-	// Create mock
-	var mock mockllm.OpenAIMock
-	mock.Name = "calculate_request"
+	baseURL, cleanup := startTestServer(t, config)
+	defer cleanup()
 
-	// Direct assignment as types.go uses structural typing
-	mock.Response = openaiResponse
-
-	mock.Match = mockllm.OpenAIRequestMatch{
-		MatchType: mockllm.MatchTypeContains,
-		Message:   openaiRequest.Messages[len(openaiRequest.Messages)-1],
-	}
-
-	// Marshaling setup for Match struct to be populated correctly in the config
-	reqBytes, err := json.Marshal(openaiRequest)
-	require.NoError(t, err)
-	err = json.Unmarshal(reqBytes, &mock.Match)
-	require.NoError(t, err)
-
-	config := mockllm.Config{
-		OpenAI: []mockllm.OpenAIMock{mock}, // Match Unmarshall logic issues if any?
-		// Note: OpenAI field in Config is []OpenAIMock.
-	}
-
-	server := mockllm.NewServer(config)
-	baseURL, err := server.Start(t.Context())
-	require.NoError(t, err)
-	defer server.Stop(context.Background())
-
-	// Use Client
 	client := openai.NewClient(
 		option.WithBaseURL(baseURL+"/v1/"),
 		option.WithAPIKey("test-key"),
 	)
 
-	stream := client.Chat.Completions.NewStreaming(t.Context(), openaiRequest)
+	// Test non-streaming response
+	t.Run("non-streaming", func(t *testing.T) {
+		resp, err := client.Chat.Completions.New(t.Context(), simpleRequest)
+		require.NoError(t, err)
 
-	var receivedToolCalls []openai.ChatCompletionChunkChoiceDeltaToolCall
+		assert.Equal(t, "chatcmpl-123", resp.ID)
+		assert.Equal(t, "chat.completion", string(resp.Object))
+		assert.Equal(t, "Hello! How can I help you today?", resp.Choices[0].Message.Content)
+	})
 
-	for stream.Next() {
-		evt := stream.Current()
-		if len(evt.Choices) > 0 {
-			if len(evt.Choices[0].Delta.ToolCalls) > 0 {
-				receivedToolCalls = append(receivedToolCalls, evt.Choices[0].Delta.ToolCalls...)
+	// Test streaming response (tool calls)
+	t.Run("streaming", func(t *testing.T) {
+		stream := client.Chat.Completions.NewStreaming(t.Context(), toolCallRequest)
+
+		var receivedToolCalls []openai.ChatCompletionChunkChoiceDeltaToolCall
+
+		for stream.Next() {
+			evt := stream.Current()
+			if len(evt.Choices) > 0 {
+				if len(evt.Choices[0].Delta.ToolCalls) > 0 {
+					receivedToolCalls = append(receivedToolCalls, evt.Choices[0].Delta.ToolCalls...)
+				}
 			}
 		}
+
+		if err := stream.Err(); err != nil {
+			t.Fatalf("Stream error: %v", err)
+		}
+
+		require.Len(t, receivedToolCalls, 1)
+		assert.Equal(t, "calculate", receivedToolCalls[0].Function.Name)
+		assert.Equal(t, `{"expression": "2+2"}`, receivedToolCalls[0].Function.Arguments)
+	})
+}
+
+func TestOpenAIResponseMock(t *testing.T) {
+	// Setup haiku response for non-streaming
+	haikuRequest := responses.ResponseNewParams{
+		Model: openai.ChatModelGPT4,
+		Input: responses.ResponseNewParamsInputUnion{
+			OfString: openai.String("Write me a haiku about Kagent"),
+		},
 	}
 
-	if err := stream.Err(); err != nil {
-		t.Fatalf("Stream error: %v", err)
+	var haikuResponse responses.Response
+	loadTestData(t, "openai_response_mock.json", &haikuResponse)
+	haikuMock := newOpenAIResponseMock(t, "haiku-response", MatchTypeContains, haikuRequest, haikuResponse)
+
+	// Setup function output response for streaming
+	funcRequest := responses.ResponseNewParams{
+		Model: openai.ChatModelGPT4,
+		Input: responses.ResponseNewParamsInputUnion{
+			OfString: openai.String("Calculate 2+2"),
+		},
 	}
 
-	// Expect to receive the tool call
-	require.Len(t, receivedToolCalls, 1)
-	assert.Equal(t, "calculate", receivedToolCalls[0].Function.Name)
-	assert.Equal(t, `{"expression": "2+2"}`, receivedToolCalls[0].Function.Arguments)
+	var funcResponse responses.Response
+	loadTestData(t, "openai_response_function_mock.json", &funcResponse)
+	funcMock := newOpenAIResponseMock(t, "function-response", MatchTypeContains, funcRequest, funcResponse)
+
+	// Setup both mocks on the same server and use request matching to determine which response to return
+	config := Config{
+		OpenAIResponse: []OpenAIResponseMock{haikuMock, funcMock},
+	}
+
+	baseURL, cleanup := startTestServer(t, config)
+	defer cleanup()
+
+	client := openai.NewClient(
+		option.WithBaseURL(baseURL+"/v1/"),
+		option.WithAPIKey("test-key"),
+	)
+
+	// Test non-streaming response (haiku)
+	t.Run("non-streaming", func(t *testing.T) {
+		resp, err := client.Responses.New(t.Context(), haikuRequest)
+		require.NoError(t, err)
+
+		assert.Equal(t, "resp_123", resp.ID)
+		outputText := resp.OutputText()
+		assert.Contains(t, outputText, "Kagent finds its mind")
+	})
+
+	// Test streaming response (function output)
+	t.Run("streaming", func(t *testing.T) {
+		stream := client.Responses.NewStreaming(t.Context(), funcRequest)
+
+		var receivedEvents []string
+		var functionCallFound, functionOutputFound bool
+
+		for stream.Next() {
+			data := stream.Current()
+			if data.Type != "" {
+				receivedEvents = append(receivedEvents, data.Type)
+				if data.Type == "response.function_call_arguments.done" {
+					functionCallFound = true
+				}
+				if data.Type == "response.function_call_output.done" {
+					functionOutputFound = true
+				}
+			}
+		}
+
+		if err := stream.Err(); err != nil {
+			t.Fatalf("Stream error: %v", err)
+		}
+
+		assert.Greater(t, len(receivedEvents), 0)
+		assert.True(t, functionCallFound, "Should receive function_call_arguments.done event")
+		assert.True(t, functionOutputFound, "Should receive function_call_output.done event")
+	})
+}
+
+func TestOpenAICompletionAndResponseMocks(t *testing.T) {
+	// Chat Completions mock
+	openaiRequest := openai.ChatCompletionNewParams{
+		Model: "gpt-4o-mini",
+		Messages: []openai.ChatCompletionMessageParamUnion{
+			{
+				OfUser: &openai.ChatCompletionUserMessageParam{
+					Role: "user",
+					Content: openai.ChatCompletionUserMessageParamContentUnion{
+						OfString: openai.String("Hello"),
+					},
+				},
+			},
+		},
+	}
+
+	var openaiResponse openai.ChatCompletion
+	loadTestData(t, "openai_mock.json", &openaiResponse)
+	chatMock := newOpenAIMock(t, "chat-test", MatchTypeExact, openaiRequest, openaiResponse)
+
+	// Responses API mock
+	responseRequest := responses.ResponseNewParams{
+		Model: openai.ChatModelGPT4,
+		Input: responses.ResponseNewParamsInputUnion{
+			OfString: openai.String("Write me a haiku about Kagent"),
+		},
+	}
+
+	var response responses.Response
+	loadTestData(t, "openai_response_mock.json", &response)
+	responseMock := newOpenAIResponseMock(t, "response-test", MatchTypeContains, responseRequest, response)
+
+	config := Config{
+		OpenAI:         []OpenAIMock{chatMock},
+		OpenAIResponse: []OpenAIResponseMock{responseMock},
+	}
+
+	baseURL, cleanup := startTestServer(t, config)
+	defer cleanup()
+
+	client := openai.NewClient(
+		option.WithBaseURL(baseURL+"/v1/"),
+		option.WithAPIKey("test-key"),
+	)
+
+	chatResp, err := client.Chat.Completions.New(t.Context(), openaiRequest)
+	require.NoError(t, err)
+	assert.Equal(t, "chatcmpl-123", chatResp.ID)
+	assert.Contains(t, chatResp.Choices[0].Message.Content, "Hello")
+
+	responseResp, err := client.Responses.New(t.Context(), responseRequest)
+	require.NoError(t, err)
+	assert.Equal(t, "resp_123", responseResp.ID)
+	assert.Contains(t, responseResp.OutputText(), "Kagent finds its mind")
 }
