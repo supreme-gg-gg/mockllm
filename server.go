@@ -14,12 +14,13 @@ import (
 
 // Server is the main mock LLM server
 type Server struct {
-	config            Config
-	openaiProvider    *OpenAIProvider
-	anthropicProvider *AnthropicProvider
-	router            *mux.Router
-	listener          net.Listener
-	httpServer        *http.Server
+	config                 Config
+	openaiProvider         *OpenAIProvider
+	openaiResponseProvider *OpenAIResponseProvider
+	anthropicProvider      *AnthropicProvider
+	router                 *mux.Router
+	listener               net.Listener
+	httpServer             *http.Server
 }
 
 // NewServer creates a new mock LLM server with the given config
@@ -53,9 +54,10 @@ func NewServer(config Config) *Server {
 	}
 
 	return &Server{
-		config:            config,
-		openaiProvider:    NewOpenAIProvider(openaiMocks, openaiResponseMocks),
-		anthropicProvider: NewAnthropicProvider(anthropicMocks),
+		config:                 config,
+		openaiProvider:         NewOpenAIProvider(openaiMocks),
+		openaiResponseProvider: NewOpenAIResponseProvider(openaiResponseMocks),
+		anthropicProvider:      NewAnthropicProvider(anthropicMocks),
 	}
 }
 
@@ -134,7 +136,7 @@ func (s *Server) setupRoutes() {
 	r.HandleFunc("/v1/chat/completions", s.openaiProvider.Handle).Methods("POST")
 
 	// OpenAI Responses API
-	r.HandleFunc("/v1/responses", s.openaiProvider.HandleResponses).Methods("POST")
+	r.HandleFunc("/v1/responses", s.openaiResponseProvider.Handle).Methods("POST")
 
 	// Anthropic Messages API
 	r.HandleFunc("/v1/messages", s.anthropicProvider.Handle).Methods("POST")
