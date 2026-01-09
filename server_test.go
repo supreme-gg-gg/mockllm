@@ -397,7 +397,22 @@ func TestOpenAICompletionAndResponseMocks(t *testing.T) {
 	assert.Equal(t, "chatcmpl-123", chatResp.ID)
 	assert.Contains(t, chatResp.Choices[0].Message.Content, "Hello")
 
-	responseResp, err := client.Responses.New(t.Context(), responseRequest)
+	// Test that string version mock matches message list version request
+	// This simulates how some frameworks send message lists instead of strings
+	// Sends {"input": [{"role": "user", "content": "..."}]}
+	responseRequestTest := responses.ResponseNewParams{
+		Model: openai.ChatModelGPT4,
+		Input: responses.ResponseNewParamsInputUnion{
+			OfInputItemList: responses.ResponseInputParam{
+				responses.ResponseInputItemParamOfMessage(
+					"Write me a haiku about Kagent",
+					responses.EasyInputMessageRoleUser,
+				),
+			},
+		},
+	}
+
+	responseResp, err := client.Responses.New(t.Context(), responseRequestTest)
 	require.NoError(t, err)
 	assert.Equal(t, "resp_123", responseResp.ID)
 	assert.Contains(t, responseResp.OutputText(), "Kagent finds its mind")

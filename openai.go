@@ -274,9 +274,20 @@ func (p *OpenAIProvider) HandleResponses(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Parse the incoming request into SDK type
+	// Patch input items to add "type" field if missing
+	// This works around upstream SDK bug: https://github.com/openai/openai-go/issues/465
+	patchResponseInputType(rawMap)
+
+	// Re-marshal the patched JSON
+	patchedBytes, err := json.Marshal(rawMap)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to marshal patched request: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Parse the patched request into SDK type
 	var requestBody responses.ResponseNewParams
-	if err := json.NewDecoder(bytes.NewBuffer(bodyBytes)).Decode(&requestBody); err != nil {
+	if err := json.Unmarshal(patchedBytes, &requestBody); err != nil {
 		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
 		return
 	}
@@ -284,15 +295,8 @@ func (p *OpenAIProvider) HandleResponses(w http.ResponseWriter, r *http.Request)
 	// Find a matching mock
 	mock := p.findMatchingResponseMock(requestBody)
 	if mock == nil {
-		requestBodyBytes, err := json.MarshalIndent(requestBody, "", "  ")
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to encode request body: %v", err),
-				http.StatusInternalServerError)
-			return
-		}
-
 		http.Error(w, fmt.Sprintf("No matching mock found. Request: %s",
-			string(requestBodyBytes)), http.StatusNotFound)
+			string(bodyBytes)), http.StatusNotFound)
 		return
 	}
 
@@ -306,6 +310,35 @@ func (p *OpenAIProvider) HandleResponses(w http.ResponseWriter, r *http.Request)
 		p.handleResponsesStreamingResponse(w, mock.Response)
 	} else {
 		p.handleNonStreamingResponse(w, mock.Response)
+	}
+}
+
+// patchResponseInputType adds "type": "message" to input items that are missing it
+// This is necessary since without this type field, the SDK will not be able to unmarshal the input into the ResponseNewParams type
+func patchResponseInputType(rawMap map[string]interface{}) {
+	input, ok := rawMap["input"]
+	if !ok {
+		return
+	}
+
+	inputList, ok := input.([]interface{})
+	if !ok {
+		return
+	}
+
+	for _, item := range inputList {
+		itemMap, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		// Add type field if missing and item looks like a message (has role and content)
+		if _, hasType := itemMap["type"]; !hasType {
+			if _, hasRole := itemMap["role"]; hasRole {
+				if _, hasContent := itemMap["content"]; hasContent {
+					itemMap["type"] = "message"
+				}
+			}
+		}
 	}
 }
 
@@ -337,11 +370,23 @@ func (p *OpenAIProvider) responseRequestsMatch(expected OpenAIResponseRequestMat
 		// Input is a union type, either OfString or OfInputItemList will be set
 		// Check if expected is OfString
 		if expected.Input.OfString.Valid() {
-			// Expected is a string, so actual must also be a string
-			if !actual.Input.OfString.Valid() {
-				return false
+			// Expected is a string, check if actual contains it
+			if actual.Input.OfString.Valid() {
+				// Both are strings, do simple contains check
+				return strings.Contains(actual.Input.OfString.Value, expected.Input.OfString.Value)
 			}
-			return strings.Contains(actual.Input.OfString.Value, expected.Input.OfString.Value)
+
+			// Some agent frameworks like OpenAI Agents SDK will format the user input as a list of messages to be compatible with Chat Completion API
+			// Therefore we also need to match a string against the last message in the input (similar to chat completion matching)
+			if len(actual.Input.OfInputItemList) > 0 {
+				lastItem := actual.Input.OfInputItemList[len(actual.Input.OfInputItemList)-1]
+				actualBytes, err := json.Marshal(lastItem)
+				if err == nil {
+					return strings.Contains(string(actualBytes), expected.Input.OfString.Value)
+				}
+			}
+
+			return false
 		}
 
 		// Check if expected is OfInputItemList and non empty
