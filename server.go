@@ -14,12 +14,13 @@ import (
 
 // Server is the main mock LLM server
 type Server struct {
-	config            Config
-	openaiProvider    *OpenAIProvider
-	anthropicProvider *AnthropicProvider
-	router            *mux.Router
-	listener          net.Listener
-	httpServer        *http.Server
+	config                 Config
+	openaiProvider         *OpenAIProvider
+	openaiResponseProvider *OpenAIResponseProvider
+	anthropicProvider      *AnthropicProvider
+	router                 *mux.Router
+	listener               net.Listener
+	httpServer             *http.Server
 }
 
 // NewServer creates a new mock LLM server with the given config
@@ -28,6 +29,15 @@ func NewServer(config Config) *Server {
 	var openaiMocks []OpenAIMock
 	for _, mock := range config.OpenAI {
 		openaiMocks = append(openaiMocks, OpenAIMock{
+			Name:     mock.Name,
+			Match:    mock.Match,
+			Response: mock.Response,
+		})
+	}
+
+	var openaiResponseMocks []OpenAIResponseMock
+	for _, mock := range config.OpenAIResponse {
+		openaiResponseMocks = append(openaiResponseMocks, OpenAIResponseMock{
 			Name:     mock.Name,
 			Match:    mock.Match,
 			Response: mock.Response,
@@ -44,9 +54,10 @@ func NewServer(config Config) *Server {
 	}
 
 	return &Server{
-		config:            config,
-		openaiProvider:    NewOpenAIProvider(openaiMocks),
-		anthropicProvider: NewAnthropicProvider(anthropicMocks),
+		config:                 config,
+		openaiProvider:         NewOpenAIProvider(openaiMocks),
+		openaiResponseProvider: NewOpenAIResponseProvider(openaiResponseMocks),
+		anthropicProvider:      NewAnthropicProvider(anthropicMocks),
 	}
 }
 
@@ -124,6 +135,9 @@ func (s *Server) setupRoutes() {
 	// OpenAI Chat Completions API
 	r.HandleFunc("/v1/chat/completions", s.openaiProvider.Handle).Methods("POST")
 
+	// OpenAI Responses API
+	r.HandleFunc("/v1/responses", s.openaiResponseProvider.Handle).Methods("POST")
+
 	// Anthropic Messages API
 	r.HandleFunc("/v1/messages", s.anthropicProvider.Handle).Methods("POST")
 
@@ -138,10 +152,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	if err := json.NewEncoder(w).Encode(map[string]any{
-		"status":    "healthy",
-		"service":   "mock-llm",
-		"openai":    len(s.config.OpenAI),
-		"anthropic": len(s.config.Anthropic),
+		"status":          "healthy",
+		"service":         "mock-llm",
+		"openai":          len(s.config.OpenAI),
+		"openai_response": len(s.config.OpenAIResponse),
+		"anthropic":       len(s.config.Anthropic),
 	}); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
 	}
@@ -155,7 +170,7 @@ func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
 		"error":  "Endpoint not found",
 		"path":   r.URL.Path,
 		"method": r.Method,
-		"hint":   "Supported: /v1/chat/completions (OpenAI), /v1/messages (Anthropic)",
+		"hint":   "Supported: /v1/chat/completions (OpenAI), /v1/responses (OpenAI Responses API), /v1/messages (Anthropic)",
 	}); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
 	}

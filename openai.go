@@ -11,14 +11,16 @@ import (
 	"github.com/openai/openai-go/v3"
 )
 
-// Provider handles OpenAI request/response mocking
+// OpenAIProvider handles OpenAI Chat Completions API request/response mocking
 type OpenAIProvider struct {
 	mocks []OpenAIMock
 }
 
-// NewOpenAIProvider creates a new OpenAI OpenAIProvider with the given mocks
+// NewOpenAIProvider creates a new OpenAI provider with the given mocks
 func NewOpenAIProvider(mocks []OpenAIMock) *OpenAIProvider {
-	return &OpenAIProvider{mocks: mocks}
+	return &OpenAIProvider{
+		mocks: mocks,
+	}
 }
 
 // Handle processes an OpenAI chat completion request
