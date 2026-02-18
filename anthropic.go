@@ -41,7 +41,7 @@ func (p *AnthropicProvider) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Find a matching mock
-	mock := p.findMatchingMock(requestBody)
+	mock := p.findMatchingMock(requestBody, r.Header)
 	if mock == nil {
 		requestBodyBytes, err := json.MarshalIndent(requestBody, "", "  ")
 		if err != nil {
@@ -59,9 +59,9 @@ func (p *AnthropicProvider) Handle(w http.ResponseWriter, r *http.Request) {
 }
 
 // findMatchingMock finds the first mock that matches the request
-func (p *AnthropicProvider) findMatchingMock(request anthropic.MessageNewParams) *AnthropicMock {
+func (p *AnthropicProvider) findMatchingMock(request anthropic.MessageNewParams, headers http.Header) *AnthropicMock {
 	for _, mock := range p.mocks {
-		if p.requestsMatch(mock.Match, request) {
+		if p.requestsMatch(mock.Match, request) && headersMatch(mock.Match.Headers, headers) {
 			return &mock
 		}
 	}

@@ -417,3 +417,158 @@ func TestOpenAICompletionAndResponseMocks(t *testing.T) {
 	assert.Equal(t, "resp_123", responseResp.ID)
 	assert.Contains(t, responseResp.OutputText(), "Kagent finds its mind")
 }
+
+func TestHeaderMatching(t *testing.T) {
+	// Create two Anthropic mocks with the same body but different required headers
+	anthropicRequest := anthropic.MessageNewParams{
+		Model:     "claude-3-5-sonnet-20240620",
+		MaxTokens: 1000,
+		Messages: []anthropic.MessageParam{
+			{
+				Role: anthropic.MessageParamRoleUser,
+				Content: []anthropic.ContentBlockParamUnion{
+					{
+						OfText: &anthropic.TextBlockParam{
+							Text: "Hello",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	var responseTenantA anthropic.Message
+	loadTestData(t, "anthropic_mock.json", &responseTenantA)
+	// Override ID for tenant A
+	responseTenantA.ID = "msg_tenant_a"
+
+	var responseTenantB anthropic.Message
+	loadTestData(t, "anthropic_mock.json", &responseTenantB)
+	responseTenantB.ID = "msg_tenant_b"
+
+	mockA := newAnthropicMock(t, "tenant-a", mockllm.MatchTypeContains, anthropicRequest, responseTenantA)
+	mockA.Match.Headers = []mockllm.HeaderMatch{
+		{Name: "X-Tenant-ID", Value: "tenant-a", MatchType: mockllm.MatchTypeExact},
+	}
+
+	mockB := newAnthropicMock(t, "tenant-b", mockllm.MatchTypeContains, anthropicRequest, responseTenantB)
+	mockB.Match.Headers = []mockllm.HeaderMatch{
+		{Name: "X-Tenant-ID", Value: "tenant-b", MatchType: mockllm.MatchTypeExact},
+	}
+
+	config := mockllm.Config{
+		Anthropic: []mockllm.AnthropicMock{mockA, mockB},
+	}
+
+	baseURL, cleanup := startTestServer(t, config)
+	defer cleanup()
+
+	sendRequest := func(t *testing.T, tenantID string) *http.Response {
+		t.Helper()
+		reqBytes, err := json.Marshal(anthropicRequest)
+		require.NoError(t, err)
+
+		req, err := http.NewRequest("POST", baseURL+"/v1/messages", bytes.NewReader(reqBytes))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("x-api-key", "test-key")
+		req.Header.Set("anthropic-version", "2023-06-01")
+		req.Header.Set("X-Tenant-ID", tenantID)
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		return resp
+	}
+
+	t.Run("exact header match selects correct mock", func(t *testing.T) {
+		resp := sendRequest(t, "tenant-a")
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var body map[string]interface{}
+		err := json.NewDecoder(resp.Body).Decode(&body)
+		require.NoError(t, err)
+		assert.Equal(t, "msg_tenant_a", body["id"])
+	})
+
+	t.Run("exact header match selects other mock", func(t *testing.T) {
+		resp := sendRequest(t, "tenant-b")
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var body map[string]interface{}
+		err := json.NewDecoder(resp.Body).Decode(&body)
+		require.NoError(t, err)
+		assert.Equal(t, "msg_tenant_b", body["id"])
+	})
+
+	t.Run("header mismatch returns 404", func(t *testing.T) {
+		resp := sendRequest(t, "tenant-unknown")
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+	})
+}
+
+func TestHeaderContainsMatch(t *testing.T) {
+	anthropicRequest := anthropic.MessageNewParams{
+		Model:     "claude-3-5-sonnet-20240620",
+		MaxTokens: 1000,
+		Messages: []anthropic.MessageParam{
+			{
+				Role: anthropic.MessageParamRoleUser,
+				Content: []anthropic.ContentBlockParamUnion{
+					{
+						OfText: &anthropic.TextBlockParam{
+							Text: "Hello",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	var anthropicResponse anthropic.Message
+	loadTestData(t, "anthropic_mock.json", &anthropicResponse)
+
+	mock := newAnthropicMock(t, "contains-header", mockllm.MatchTypeContains, anthropicRequest, anthropicResponse)
+	mock.Match.Headers = []mockllm.HeaderMatch{
+		{Name: "Authorization", Value: "Bearer", MatchType: mockllm.MatchTypeContains},
+	}
+
+	config := mockllm.Config{
+		Anthropic: []mockllm.AnthropicMock{mock},
+	}
+
+	baseURL, cleanup := startTestServer(t, config)
+	defer cleanup()
+
+	reqBytes, err := json.Marshal(anthropicRequest)
+	require.NoError(t, err)
+
+	t.Run("contains match succeeds", func(t *testing.T) {
+		req, err := http.NewRequest("POST", baseURL+"/v1/messages", bytes.NewReader(reqBytes))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("x-api-key", "test-key")
+		req.Header.Set("anthropic-version", "2023-06-01")
+		req.Header.Set("Authorization", "Bearer sk-test-12345")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+
+	t.Run("contains match fails when header missing", func(t *testing.T) {
+		req, err := http.NewRequest("POST", baseURL+"/v1/messages", bytes.NewReader(reqBytes))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("x-api-key", "test-key")
+		req.Header.Set("anthropic-version", "2023-06-01")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+	})
+}

@@ -24,9 +24,16 @@ const (
 	MatchTypeContains MatchType = "contains"
 )
 
+type HeaderMatch struct {
+	Name      string    `json:"name"`                 // Header name (case-insensitive per HTTP spec)
+	Value     string    `json:"value"`                // Value to match against
+	MatchType MatchType `json:"match_type,omitempty"` // "exact" (default) or "contains"
+}
+
 type OpenAIRequestMatch struct {
 	MatchType MatchType                              `json:"match_type"`
 	Message   openai.ChatCompletionMessageParamUnion `json:"message"`
+	Headers   []HeaderMatch                          `json:"headers,omitempty"`
 }
 
 // OpenAIMock maps an OpenAI request to a response using official SDK types
@@ -39,6 +46,7 @@ type OpenAIMock struct {
 type OpenAIResponseRequestMatch struct {
 	MatchType MatchType                             `json:"match_type"`
 	Input     responses.ResponseNewParamsInputUnion `json:"input"` // Input to match against (typically OfString)
+	Headers   []HeaderMatch                         `json:"headers,omitempty"`
 }
 
 // OpenAIResponseMock maps an OpenAI Responses API request to a response using official SDK types
@@ -51,6 +59,7 @@ type OpenAIResponseMock struct {
 type AnthropicRequestMatch struct {
 	MatchType MatchType              `json:"match_type"`
 	Message   anthropic.MessageParam `json:"message"`
+	Headers   []HeaderMatch          `json:"headers,omitempty"`
 }
 
 // AnthropicMock maps an Anthropic request to a response using official SDK types
