@@ -8,6 +8,7 @@ A simple mock LLM server for end-to-end testing. Provides request/response mocki
 - OpenAI Responses API (streaming and non-streaming, including function outputs)
 - Anthropic Messages API (non-streaming)
 - Exact and contains matching
+- Optional header matching (e.g., tenant ID, API key, custom headers)
 - Tool/function calls support
 - JSON configuration files
 
@@ -31,8 +32,9 @@ Current implementation uses these core types:
 ### Matching
 
 - `MatchType`: Enum for matching strategies (`exact`, `contains`)
-- `OpenAIRequestMatch` and `OpenAIResponseRequestMatch`: Defines how to match OpenAI requests (match type + message)
-- `AnthropicRequestMatch`: Defines how to match Anthropic requests (match type + message)
+- `HeaderMatch`: Defines a header matching rule (name, value, match type)
+- `OpenAIRequestMatch` and `OpenAIResponseRequestMatch`: Defines how to match OpenAI requests (match type + message + optional headers)
+- `AnthropicRequestMatch`: Defines how to match Anthropic requests (match type + message + optional headers)
 
 ## API Coverage
 
@@ -156,6 +158,47 @@ config := mockllm.Config{
 }
 ```
 
+### Header Matching
+
+Mocks can optionally require specific HTTP headers to match. When `headers` is specified, all header rules must match (AND semantics) in addition to the body match. Header matching is optional — mocks without `headers` continue to work identically.
+
+#### Go Structs
+
+```go
+mock := mockllm.OpenAIMock{
+    Name: "tenant-a-response",
+    Match: mockllm.OpenAIRequestMatch{
+        MatchType: mockllm.MatchTypeContains,
+        Message:   /* ... */,
+        Headers: []mockllm.HeaderMatch{
+            {Name: "X-Tenant-ID", Value: "tenant-a", MatchType: mockllm.MatchTypeExact},
+        },
+    },
+    Response: /* ... */,
+}
+```
+
+#### JSON
+
+```json
+{
+  "name": "tenant-a-response",
+  "match": {
+    "match_type": "contains",
+    "message": { "role": "user", "content": "Hello" },
+    "headers": [
+      { "name": "X-Tenant-ID", "value": "tenant-a", "match_type": "exact" },
+      { "name": "Authorization", "value": "Bearer", "match_type": "contains" }
+    ]
+  },
+  "response": { }
+}
+```
+
+- `name`: Header name (case-insensitive, per HTTP spec)
+- `value`: Value to match against
+- `match_type`: `"exact"` (default if omitted) or `"contains"`
+
 ### Matching Algorithm
 
 Simple linear search through mocks:
@@ -163,8 +206,8 @@ Simple linear search through mocks:
 1. Parse incoming request into appropriate SDK type
 2. Iterate through provider-specific mocks in order
 3. For each mock, check if the match criteria are met:
-   - **Exact**: JSON comparison of the last message
-   - **Contains**: String contains check on message content (OpenAI only)
+   - **Body**: Exact JSON comparison or string contains check on last message/input
+   - **Headers** (optional): All specified header rules must match
 4. Return the response from the first matching mock
 5. Return 404 if no match found
 
@@ -193,7 +236,9 @@ client := openai.NewClient(
 
 - `server.go` — HTTP server, routing, lifecycle
 - `types.go` — Configuration types
-- `openai.go` — OpenAI handler (Chat Completions + Responses)
+- `headers.go` — Shared header matching logic
+- `openai.go` — OpenAI handler (Chat Completions)
+- `openai_response.go` — OpenAI handler (Responses API)
 - `anthropic.go` — Anthropic handler
 - `server_test.go` — Integration tests
 - `testdata/` — Test fixtures
@@ -206,7 +251,7 @@ client := openai.NewClient(
 
 ## Limitations
 
-- Simple matching only (exact/contains on last message/input)
+- Simple matching only (exact/contains on last message/input and optional headers)
 - **Does not mock hosted tools (e.g. OpenAI file search, code execution) calls, reasoning, and MCP calls**
 - No stateful conversation tracking
 - No latency simulation
