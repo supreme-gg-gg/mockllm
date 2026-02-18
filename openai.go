@@ -49,7 +49,7 @@ func (p *OpenAIProvider) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Find a matching mock
-	mock := p.findMatchingMock(requestBody)
+	mock := p.findMatchingMock(requestBody, r.Header)
 	if mock == nil {
 		requestBodyBytes, err := json.MarshalIndent(requestBody, "", "  ")
 		if err != nil {
@@ -77,9 +77,9 @@ func (p *OpenAIProvider) Handle(w http.ResponseWriter, r *http.Request) {
 }
 
 // findMatchingMock finds the first mock that matches the request
-func (p *OpenAIProvider) findMatchingMock(request openai.ChatCompletionNewParams) *OpenAIMock {
+func (p *OpenAIProvider) findMatchingMock(request openai.ChatCompletionNewParams, headers http.Header) *OpenAIMock {
 	for _, mock := range p.mocks {
-		if p.requestsMatch(mock.Match, request) {
+		if p.requestsMatch(mock.Match, request) && headersMatch(mock.Match.Headers, headers) {
 			return &mock
 		}
 	}

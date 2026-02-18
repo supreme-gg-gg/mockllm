@@ -60,7 +60,7 @@ func (p *OpenAIResponseProvider) Handle(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Find a matching mock
-	mock := p.findMatchingResponseMock(requestBody)
+	mock := p.findMatchingResponseMock(requestBody, r.Header)
 	if mock == nil {
 		http.Error(w, fmt.Sprintf("No matching mock found. Request: %s",
 			string(bodyBytes)), http.StatusNotFound)
@@ -110,9 +110,9 @@ func patchResponseInputType(rawMap map[string]interface{}) {
 }
 
 // findMatchingResponseMock finds the first mock that matches the Responses API request
-func (p *OpenAIResponseProvider) findMatchingResponseMock(request responses.ResponseNewParams) *OpenAIResponseMock {
+func (p *OpenAIResponseProvider) findMatchingResponseMock(request responses.ResponseNewParams, headers http.Header) *OpenAIResponseMock {
 	for _, mock := range p.mocks {
-		if p.responseRequestsMatch(mock.Match, request) {
+		if p.responseRequestsMatch(mock.Match, request) && headersMatch(mock.Match.Headers, headers) {
 			return &mock
 		}
 	}
