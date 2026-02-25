@@ -5,7 +5,8 @@ A simple mock LLM server for end-to-end testing. Provides request/response mocki
 ## Features
 
 - OpenAI Chat Completions API (streaming and non-streaming)
-- OpenAI Responses API (streaming and non-streaming, including function outputs)
+- OpenAI Responses API (streaming and non-streaming)
+- OpenAI Embeddings API
 - Anthropic Messages API (non-streaming)
 - Exact and contains matching
 - Optional header matching (e.g., tenant ID, API key, custom headers)
@@ -26,7 +27,7 @@ Current implementation uses these core types:
 ### Configuration
 
 - `Config`: Root configuration containing arrays of OpenAI and Anthropic mocks
-- `OpenAIMock` and `OpenAIResponseMock` Maps OpenAI requests to responses using official SDK types
+- `OpenAIMock`, `OpenAIResponseMock`, and `OpenAIEmbeddingMock` Maps OpenAI requests to responses using official SDK types
 - `AnthropicMock`: Maps Anthropic requests to responses using official SDK types
 
 ### Matching
@@ -55,6 +56,14 @@ Current implementation uses these core types:
 - **Matching**: Exact or contains on input field
 - **Features**: Supports text output and function call outputs
 
+### OpenAI Embeddings API
+
+- **Endpoint**: `POST /v1/embeddings`
+- **Auth**: `Authorization: Bearer <token>` (presence check only)
+- **Request**: `openai.EmbeddingNewParams`
+- **Response**: `openai.CreateEmbeddingResponse`
+- **Matching**: Exact or contains on input field
+
 ### Anthropic Messages API
 
 - **Endpoint**: `POST /v1/messages`
@@ -66,7 +75,7 @@ Current implementation uses these core types:
 
 ## Configuration
 
-### Go Structs
+### Config Go Structs
 
 ```go
 config := mockllm.Config{
@@ -90,11 +99,21 @@ config := mockllm.Config{
             Response: /* responses.Response */,
         },
     },
+    OpenAIEmbeddings: []mockllm.OpenAIEmbeddingMock{
+        {
+            Name: "embedding-response",
+            Match: mockllm.OpenAIEmbeddingRequestMatch{
+                MatchType: mockllm.MatchTypeExact,
+                Input: /* openai.EmbeddingNewParamsInputUnion */,
+            },
+            Response: /* openai.CreateEmbeddingResponse */,
+        },
+    },
     Anthropic: []mockllm.AnthropicMock{/* ... */},
 }
 ```
 
-### JSON Files
+### Config JSON Files
 
 ```json
 {
@@ -152,17 +171,24 @@ config := mockllm.Config{
   "openai_response": [
     /* ... */
   ],
+  "openai_embeddings": [
+    /* ... */
+  ],
   "anthropic": [
     /* ... */
   ]
 }
 ```
 
+### Generating Embeddings
+
+When configuring mocks, you need to specify the embedding vectors for the input strings. You can do so using the OpenAI embeddings API (with your API key) or use a local option like `ollama` (e.g. `ollama run embeddinggemma "Hello world"`). MockLLM works with embeddings of any dimension, so you can use any embedding model you like.
+
 ### Header Matching
 
 Mocks can optionally require specific HTTP headers to match. When `headers` is specified, all header rules must match (AND semantics) in addition to the body match. Header matching is optional — mocks without `headers` continue to work identically.
 
-#### Go Structs
+#### Go Header Structs
 
 ```go
 mock := mockllm.OpenAIMock{
@@ -178,7 +204,7 @@ mock := mockllm.OpenAIMock{
 }
 ```
 
-#### JSON
+#### JSON Header Objects
 
 ```json
 {
@@ -191,7 +217,7 @@ mock := mockllm.OpenAIMock{
       { "name": "Authorization", "value": "Bearer", "match_type": "contains" }
     ]
   },
-  "response": { }
+  "response": {}
 }
 ```
 
@@ -239,6 +265,7 @@ client := openai.NewClient(
 - `headers.go` — Shared header matching logic
 - `openai.go` — OpenAI handler (Chat Completions)
 - `openai_response.go` — OpenAI handler (Responses API)
+- `openai_embeddings.go` — OpenAI handler (Embeddings API)
 - `anthropic.go` — Anthropic handler
 - `server_test.go` — Integration tests
 - `testdata/` — Test fixtures

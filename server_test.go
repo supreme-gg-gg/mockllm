@@ -71,6 +71,27 @@ func newOpenAIResponseMock(t *testing.T, name string, matchType mockllm.MatchTyp
 	return mock
 }
 
+// newOpenAIEmbeddingMock creates an OpenAIEmbeddingMock with the given parameters
+func newOpenAIEmbeddingMock(t *testing.T, name string, matchType mockllm.MatchType, request openai.EmbeddingNewParams, response openai.CreateEmbeddingResponse) mockllm.OpenAIEmbeddingMock {
+	t.Helper()
+	mock := mockllm.OpenAIEmbeddingMock{
+		Name:     name,
+		Response: response,
+		Match: mockllm.OpenAIEmbeddingRequestMatch{
+			MatchType: matchType,
+			Input:     request.Input,
+		},
+	}
+
+	// Marshal and unmarshal to get proper structure
+	reqBytes, err := json.Marshal(request)
+	require.NoError(t, err)
+	err = json.Unmarshal(reqBytes, &mock.Match)
+	require.NoError(t, err)
+
+	return mock
+}
+
 // newAnthropicMock creates an AnthropicMock with the given parameters
 func newAnthropicMock(t *testing.T, name string, matchType mockllm.MatchType, request anthropic.MessageNewParams, response anthropic.Message) mockllm.AnthropicMock {
 	t.Helper()
@@ -416,6 +437,65 @@ func TestOpenAICompletionAndResponseMocks(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "resp_123", responseResp.ID)
 	assert.Contains(t, responseResp.OutputText(), "Kagent finds its mind")
+}
+
+func TestOpenAIEmbeddingMock(t *testing.T) {
+	embeddingRequestStr := openai.EmbeddingNewParams{
+		Model: openai.EmbeddingModel("text-embedding-3-small"),
+		Input: openai.EmbeddingNewParamsInputUnion{
+			OfString: openai.String("Hello world"),
+		},
+	}
+
+	var embeddingResponseStr openai.CreateEmbeddingResponse
+	loadTestData(t, "openai_embedding_mock.json", &embeddingResponseStr)
+	embeddingMockStr := newOpenAIEmbeddingMock(t, "embedding-str-test", mockllm.MatchTypeContains, embeddingRequestStr, embeddingResponseStr)
+
+	// 2. Test array of strings input (batch generation)
+	embeddingRequestList := openai.EmbeddingNewParams{
+		Model: openai.EmbeddingModel("text-embedding-3-small"),
+		Input: openai.EmbeddingNewParamsInputUnion{
+			OfArrayOfStrings: []string{"Hello world", "Test embeddings"},
+		},
+		Dimensions: openai.Int(512),
+	}
+
+	var embeddingResponseList openai.CreateEmbeddingResponse
+	loadTestData(t, "openai_embedding_mock.json", &embeddingResponseList)
+	embeddingMockList := newOpenAIEmbeddingMock(t, "embedding-list-test", mockllm.MatchTypeContains, embeddingRequestList, embeddingResponseList)
+
+	config := mockllm.Config{
+		OpenAIEmbeddings: []mockllm.OpenAIEmbeddingMock{embeddingMockStr, embeddingMockList},
+	}
+
+	baseURL, cleanup := startTestServer(t, config)
+	defer cleanup()
+
+	client := openai.NewClient(
+		option.WithBaseURL(baseURL+"/v1/"),
+		option.WithAPIKey("test-key"),
+	)
+
+	t.Run("single string input", func(t *testing.T) {
+		resp, err := client.Embeddings.New(t.Context(), embeddingRequestStr)
+		require.NoError(t, err)
+
+		assert.Equal(t, openai.EmbeddingModel("text-embedding-3-small"), resp.Model)
+		assert.Equal(t, int64(0), resp.Data[0].Index)
+		assert.Len(t, resp.Data[0].Embedding, 768)
+	})
+
+	t.Run("array of strings input with dimensions truncation", func(t *testing.T) {
+		resp, err := client.Embeddings.New(t.Context(), embeddingRequestList)
+		require.NoError(t, err)
+
+		assert.Equal(t, openai.EmbeddingModel("text-embedding-3-small"), resp.Model)
+		assert.Len(t, resp.Data, 2)
+		assert.Equal(t, int64(0), resp.Data[0].Index)
+		assert.Len(t, resp.Data[0].Embedding, 512)
+		assert.Equal(t, int64(1), resp.Data[1].Index)
+		assert.Len(t, resp.Data[1].Embedding, 512)
+	})
 }
 
 func TestHeaderMatching(t *testing.T) {
