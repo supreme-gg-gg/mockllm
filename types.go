@@ -10,9 +10,10 @@ import (
 
 // Config holds all the mock responses
 type Config struct {
-	OpenAI         []OpenAIMock         `json:"openai,omitempty"`
-	OpenAIResponse []OpenAIResponseMock `json:"openai_response,omitempty"`
-	Anthropic      []AnthropicMock      `json:"anthropic,omitempty"`
+	OpenAI           []OpenAIMock          `json:"openai,omitempty"`
+	OpenAIResponse   []OpenAIResponseMock  `json:"openai_response,omitempty"`
+	OpenAIEmbeddings []OpenAIEmbeddingMock `json:"openai_embeddings,omitempty"`
+	Anthropic        []AnthropicMock       `json:"anthropic,omitempty"`
 	// ListenAddr is the address to listen on. Defaults to 0.0.0.0:0 (any IP address and ephemeral port)
 	ListenAddr string `json:"listen_addr,omitempty"`
 }
@@ -67,4 +68,17 @@ type AnthropicMock struct {
 	Name     string                `json:"name"`     // identifier for this mock
 	Match    AnthropicRequestMatch `json:"match"`    // Match type and value
 	Response anthropic.Message     `json:"response"` // Anthropic response to return (Message or streaming event)
+}
+
+type OpenAIEmbeddingRequestMatch struct {
+	MatchType MatchType                           `json:"match_type"`
+	Input     openai.EmbeddingNewParamsInputUnion `json:"input"`
+	Headers   []HeaderMatch                       `json:"headers,omitempty"`
+}
+
+// OpenAIEmbeddingMock maps an OpenAI embeddings request to a response using official SDK types
+type OpenAIEmbeddingMock struct {
+	Name     string                       `json:"name"`     // identifier for this mock
+	Match    OpenAIEmbeddingRequestMatch  `json:"match"`    // Match type and value
+	Response openai.CreateEmbeddingResponse `json:"response"` // OpenAI embeddings response to return
 }
