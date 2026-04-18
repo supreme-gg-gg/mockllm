@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -20,8 +21,8 @@ type Server struct {
 	openaiEmbeddingProvider *OpenAIEmbeddingProvider
 	anthropicProvider       *AnthropicProvider
 	router                  *mux.Router
-	listener               net.Listener
-	httpServer             *http.Server
+	listener                net.Listener
+	httpServer              *http.Server
 }
 
 // NewServer creates a new mock LLM server with the given config
@@ -75,6 +76,21 @@ func NewServer(config Config) *Server {
 // LoadConfigFromFile loads configuration from a JSON file
 func LoadConfigFromFile(path string, filesys fs.ReadFileFS) (Config, error) {
 	data, err := filesys.ReadFile(path)
+	if err != nil {
+		return Config{}, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	var config Config
+	if err := json.Unmarshal(data, &config); err != nil {
+		return Config{}, fmt.Errorf("failed to parse config JSON: %w", err)
+	}
+
+	return config, nil
+}
+
+// LoadConfig loads configuration from a JSON file on the local filesystem.
+func LoadConfig(path string) (Config, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return Config{}, fmt.Errorf("failed to read config file: %w", err)
 	}

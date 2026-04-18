@@ -75,6 +75,23 @@ Current implementation uses these core types:
 
 ## Configuration
 
+## Running as an Executable
+
+You can run MockLLM directly from this repo:
+
+```bash
+go run ./cmd/mockllm --config ./testdata/example_config.json
+```
+
+Or build a standalone binary:
+
+```bash
+go build -o mockllm ./cmd/mockllm
+./mockllm --config ./path/to/mocks.json --listen-addr 127.0.0.1:8080
+```
+
+The process prints its base URL to stdout once the server is healthy, then keeps serving until it receives `SIGINT` or `SIGTERM`.
+
 ### Config Go Structs
 
 ```go

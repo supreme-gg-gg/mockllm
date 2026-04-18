@@ -6,6 +6,8 @@ import (
 	"embed"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -202,6 +204,22 @@ func TestHealthCheck(t *testing.T) {
 	assert.NotNil(t, responseBody["openai"])
 	assert.NotNil(t, responseBody["openai_response"])
 	assert.NotNil(t, responseBody["anthropic"])
+}
+
+func TestLoadConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	data, err := testdataFS.ReadFile("testdata/example_config.json")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(configPath, data, 0o600))
+
+	config, err := mockllm.LoadConfig(configPath)
+	require.NoError(t, err)
+
+	assert.Equal(t, "127.0.0.1:0", config.ListenAddr)
+	require.Len(t, config.OpenAI, 1)
+	assert.Equal(t, "hello", config.OpenAI[0].Name)
 }
 
 func TestOpenAICompletionMock(t *testing.T) {
