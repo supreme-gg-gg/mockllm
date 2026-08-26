@@ -7,7 +7,7 @@ A simple mock LLM server for end-to-end testing. Provides request/response mocki
 - OpenAI Chat Completions API (streaming and non-streaming)
 - OpenAI Responses API (streaming and non-streaming)
 - OpenAI Embeddings API
-- Anthropic Messages API (non-streaming)
+- Anthropic Messages API (streaming and non-streaming)
 - Exact and contains matching
 - Optional header matching (e.g., tenant ID, API key, custom headers)
 - Tool/function calls support
@@ -257,7 +257,7 @@ Simple linear search through mocks:
 ## Response Types
 
 - **Non-streaming**: JSON responses using SDK types
-- **Streaming**: Server-Sent Events (SSE) for Chat Completions and Responses API
+- **Streaming**: Server-Sent Events (SSE) for Chat Completions, Responses, and Anthropic Messages APIs
 - Uses official SDK response types directly
 
 ## Usage
