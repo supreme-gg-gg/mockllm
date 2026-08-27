@@ -7,7 +7,7 @@ A simple mock LLM server for end-to-end testing. Provides request/response mocki
 - OpenAI Chat Completions API (streaming and non-streaming)
 - OpenAI Responses API (streaming and non-streaming)
 - OpenAI Embeddings API
-- Anthropic Messages API (non-streaming)
+- Anthropic Messages API (streaming and non-streaming)
 - Exact and contains matching
 - Optional header matching (e.g., tenant ID, API key, custom headers)
 - Tool/function calls support
@@ -35,7 +35,7 @@ Current implementation uses these core types:
 - `MatchType`: Enum for matching strategies (`exact`, `contains`)
 - `HeaderMatch`: Defines a header matching rule (name, value, match type)
 - `OpenAIRequestMatch` and `OpenAIResponseRequestMatch`: Defines how to match OpenAI requests (match type + message + optional headers)
-- `AnthropicRequestMatch`: Defines how to match Anthropic requests (match type + message + optional headers)
+- `AnthropicRequestMatch`: Defines how to match Anthropic requests (match type + message + optional headers, system substrings, and advertised tool names)
 
 ## API Coverage
 
@@ -71,7 +71,7 @@ Current implementation uses these core types:
 - **Headers**: `anthropic-version` required
 - **Request**: `anthropic.MessageNewParams`
 - **Response**: `anthropic.Message`
-- **Matching**: Exact or contains on last message
+- **Matching**: Exact or contains on last message, with optional request-level system-text and tool-name constraints
 
 ## Configuration
 
@@ -242,6 +242,24 @@ mock := mockllm.OpenAIMock{
 - `value`: Value to match against
 - `match_type`: `"exact"` (default if omitted) or `"contains"`
 
+### Anthropic Request Fields
+
+Anthropic mocks can additionally require text in the top-level system prompt and
+exact names in the advertised tool list. Every configured value must be present,
+and these constraints are combined with the message and header match:
+
+```json
+{
+  "match_type": "contains",
+  "message": {
+    "role": "user",
+    "content": [{"type": "text", "text": "add 3 and 5"}]
+  },
+  "system_contains": ["Use the arithmetic skill"],
+  "tool_names": ["mcp__calculator__add_numbers"]
+}
+```
+
 ### Matching Algorithm
 
 Simple linear search through mocks:
@@ -257,7 +275,7 @@ Simple linear search through mocks:
 ## Response Types
 
 - **Non-streaming**: JSON responses using SDK types
-- **Streaming**: Server-Sent Events (SSE) for Chat Completions and Responses API
+- **Streaming**: Server-Sent Events (SSE) for Chat Completions, Responses, and Anthropic Messages APIs
 - Uses official SDK response types directly
 
 ## Usage

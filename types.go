@@ -58,9 +58,11 @@ type OpenAIResponseMock struct {
 }
 
 type AnthropicRequestMatch struct {
-	MatchType MatchType              `json:"match_type"`
-	Message   anthropic.MessageParam `json:"message"`
-	Headers   []HeaderMatch          `json:"headers,omitempty"`
+	MatchType      MatchType              `json:"match_type"`
+	Message        anthropic.MessageParam `json:"message"`
+	Headers        []HeaderMatch          `json:"headers,omitempty"`
+	SystemContains []string               `json:"system_contains,omitempty"`
+	ToolNames      []string               `json:"tool_names,omitempty"`
 }
 
 // AnthropicMock maps an Anthropic request to a response using official SDK types
@@ -78,7 +80,7 @@ type OpenAIEmbeddingRequestMatch struct {
 
 // OpenAIEmbeddingMock maps an OpenAI embeddings request to a response using official SDK types
 type OpenAIEmbeddingMock struct {
-	Name     string                       `json:"name"`     // identifier for this mock
-	Match    OpenAIEmbeddingRequestMatch  `json:"match"`    // Match type and value
+	Name     string                         `json:"name"`     // identifier for this mock
+	Match    OpenAIEmbeddingRequestMatch    `json:"match"`    // Match type and value
 	Response openai.CreateEmbeddingResponse `json:"response"` // OpenAI embeddings response to return
 }
