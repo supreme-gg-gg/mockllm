@@ -86,6 +86,69 @@ func TestAnthropicContainsToolResultMatchesOnlyID(t *testing.T) {
 	}
 }
 
+func TestAnthropicRequestFieldConstraints(t *testing.T) {
+	var actual anthropic.MessageNewParams
+	if err := json.Unmarshal([]byte(`{
+		"model":"claude-sonnet-4-5",
+		"max_tokens":100,
+		"system":[
+			{"type":"text","text":"Use the installed arithmetic skill."},
+			{"type":"text","text":"Always call tools when instructed."}
+		],
+		"tools":[
+			{"name":"mcp__calculator__add_numbers","description":"Add numbers","input_schema":{"type":"object"}},
+			{"name":"Read","description":"Read a file","input_schema":{"type":"object"}}
+		],
+		"messages":[{"role":"user","content":[{"type":"text","text":"add 3 and 5"}]}]
+	}`), &actual); err != nil {
+		t.Fatal(err)
+	}
+
+	var expected AnthropicRequestMatch
+	if err := json.Unmarshal([]byte(`{
+		"match_type":"contains",
+		"message":{"role":"user","content":[{"type":"text","text":"add 3"}]},
+		"system_contains":["arithmetic skill","call tools"],
+		"tool_names":["mcp__calculator__add_numbers","Read"]
+	}`), &expected); err != nil {
+		t.Fatal(err)
+	}
+
+	provider := NewAnthropicProvider(nil)
+	if !provider.requestsMatch(expected, actual) {
+		t.Fatal("expected request-level constraints to match")
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*AnthropicRequestMatch)
+	}{
+		{
+			name: "missing system text",
+			mutate: func(match *AnthropicRequestMatch) {
+				match.SystemContains = append(match.SystemContains, "missing instruction")
+			},
+		},
+		{
+			name: "missing tool",
+			mutate: func(match *AnthropicRequestMatch) {
+				match.ToolNames = append(match.ToolNames, "missing_tool")
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := expected
+			candidate.SystemContains = append([]string(nil), expected.SystemContains...)
+			candidate.ToolNames = append([]string(nil), expected.ToolNames...)
+			test.mutate(&candidate)
+			if provider.requestsMatch(candidate, actual) {
+				t.Fatal("request matched an unsatisfied request-level constraint")
+			}
+		})
+	}
+}
+
 func TestAnthropicStreamingEventsDecodeWithSDK(t *testing.T) {
 	var response anthropic.Message
 	if err := json.Unmarshal([]byte(`{

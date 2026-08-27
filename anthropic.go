@@ -130,6 +130,10 @@ func (p *AnthropicProvider) findMatchingMock(request anthropic.MessageNewParams,
 // in the expected message. Text blocks match by substring; tool_result blocks match
 // only by tool_use_id.
 func (p *AnthropicProvider) requestsMatch(expected AnthropicRequestMatch, actual anthropic.MessageNewParams) bool {
+	if !anthropicRequestFieldsMatch(expected, actual) {
+		return false
+	}
+
 	// Simple deep equal comparison for now
 	// In the future, we could add more sophisticated matching
 	switch expected.MatchType {
@@ -183,6 +187,39 @@ func (p *AnthropicProvider) requestsMatch(expected AnthropicRequestMatch, actual
 		}
 	}
 	return false
+}
+
+// anthropicRequestFieldsMatch checks optional constraints outside the messages
+// array. Every configured system substring and tool name must be present.
+func anthropicRequestFieldsMatch(expected AnthropicRequestMatch, actual anthropic.MessageNewParams) bool {
+	for _, expectedText := range expected.SystemContains {
+		found := false
+		for _, block := range actual.System {
+			if strings.Contains(block.Text, expectedText) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
+	for _, expectedName := range expected.ToolNames {
+		found := false
+		for _, tool := range actual.Tools {
+			name := tool.GetName()
+			if name != nil && *name == expectedName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
+	return true
 }
 
 // handleNonStreamingResponse sends a JSON response

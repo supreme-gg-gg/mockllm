@@ -35,7 +35,7 @@ Current implementation uses these core types:
 - `MatchType`: Enum for matching strategies (`exact`, `contains`)
 - `HeaderMatch`: Defines a header matching rule (name, value, match type)
 - `OpenAIRequestMatch` and `OpenAIResponseRequestMatch`: Defines how to match OpenAI requests (match type + message + optional headers)
-- `AnthropicRequestMatch`: Defines how to match Anthropic requests (match type + message + optional headers)
+- `AnthropicRequestMatch`: Defines how to match Anthropic requests (match type + message + optional headers, system substrings, and advertised tool names)
 
 ## API Coverage
 
@@ -71,7 +71,7 @@ Current implementation uses these core types:
 - **Headers**: `anthropic-version` required
 - **Request**: `anthropic.MessageNewParams`
 - **Response**: `anthropic.Message`
-- **Matching**: Exact or contains on last message
+- **Matching**: Exact or contains on last message, with optional request-level system-text and tool-name constraints
 
 ## Configuration
 
@@ -241,6 +241,24 @@ mock := mockllm.OpenAIMock{
 - `name`: Header name (case-insensitive, per HTTP spec)
 - `value`: Value to match against
 - `match_type`: `"exact"` (default if omitted) or `"contains"`
+
+### Anthropic Request Fields
+
+Anthropic mocks can additionally require text in the top-level system prompt and
+exact names in the advertised tool list. Every configured value must be present,
+and these constraints are combined with the message and header match:
+
+```json
+{
+  "match_type": "contains",
+  "message": {
+    "role": "user",
+    "content": [{"type": "text", "text": "add 3 and 5"}]
+  },
+  "system_contains": ["Use the arithmetic skill"],
+  "tool_names": ["mcp__calculator__add_numbers"]
+}
+```
 
 ### Matching Algorithm
 
